@@ -1,0 +1,31 @@
+<html>
+<head>
+
+	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.0.0-beta1/jquery.js"></script>
+
+</head>
+<body>
+
+<script>
+
+$(document).ready(function(){
+	$.getJSON({
+	  	type: 'GET',
+	 	url: '/api/table/list',
+	  	contentType: 'application/json;',
+	  	dataType: 'json',
+	  	success: function(json) {
+	  		outputJSON(json);
+	  	}
+	});
+});
+
+function outputJSON(json)
+{
+	document.write(JSON.stringify(json));	
+}
+
+</script>
+
+</body>
+</html>

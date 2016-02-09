@@ -1,4 +1,6 @@
-from flask import Flask,render_template,jsonify,url_for,request,session,flash
+from flask import Flask,render_template,jsonify,url_for,request,session,flash, json
+from collections import OrderedDict
+from requests import put, get
 from werkzeug import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer
 from functools import wraps
@@ -23,9 +25,9 @@ app = Flask(__name__)
 #######################
 
 host = 'localhost'
-password = '6928542m'
+password = 'root'
 user = 'root'
-db = "LYNK"
+db = 'GamesDB'
 
 
 def collectionTemplate():
@@ -47,6 +49,7 @@ def runSQLQuery(_sql, code):
         cursor.execute(_sql)
         data = cursor.fetchall()
         return data
+
 
     elif code == 1: #All insert queries here
         try:
@@ -112,37 +115,31 @@ def generateDynamicItem(columns, data):
 	return jsonify(items)
 
 
-@app.route('/api/')
+@app.route('/')
 def root():
 	collection = collectionTemplate()
-	query = "SHOW DATABASES"
+	query="SHOW DATABASES"
 	data = runSQLQuery(query, 0)
 	print(data)
 
-	for i in data:
-
-		collection['collection']['items'].append(dictifyTableItem(i))
-
-	return jsonify(collection)
+	return render_template("index.html")
 
 @app.route('/api/table/list', methods=['GET', 'POST'])
 def getTableList():
-	print("HERE 1")
+
 	#Function for retrieving table list
 	query = "SHOW TABLES"
-	print("HERE 2")
+
 	data = runSQLQuery(query, 0)
-	print(data)
+
 
 	collection = collectionTemplate()
 
 	for i in data:
-		print(i[0])
 		collection['collection']['items'].append(dictifyTableItem(i))
 	
 
-	print(collection.items)
-	print(collection)
+	print(json.dumps(collection))
 	return jsonify(collection)
 
 
