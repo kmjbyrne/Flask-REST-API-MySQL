@@ -1,22 +1,19 @@
-from flask import Flask,render_template,jsonify,url_for,request,session,flash, json
-from collections import OrderedDict
-from requests import put, get
+from flask import Flask,render_template,jsonify,url_for,request,session,flash, json, Response
+from urlparse import urlparse
+import urllib2, json
 from werkzeug import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer
 from functools import wraps
 import MySQLdb
 
-
-
 # HTTP Request Detail
 # TYPE : API Feature
 
 # GET /table/list
-# GET /table/structure
+# GET /table/structure (Deprecated from v1.x +)
 # GET /table/showall
 # POST /table/post
 # GET /table/showone
-
 
 app = Flask(__name__)
 
@@ -29,17 +26,73 @@ password = 'root'
 user = 'root'
 db = 'GamesDB'
 
+content_type = 'application/vnd.collection+json'
+api_root = '/api/'
 
-def collectionTemplate():
-	collection = 	{
-						"collection":{
-							"version": "1.0",
-							"href": "http://localhost:5000/api/table/list",
-							"items": [],
-							"links": []
-						}
-					}
-	return collection
+cj = {}
+
+def testItems():
+	friends = []
+	item={}
+	item['name'] = 'mildred'
+	item['email'] = 'mildred@example.com'
+	item['blog'] = 'http://example.com/blogs/mildred'
+	friends.append(item);
+
+	item['name'] = 'mildred'
+	item['email'] = 'mildred@example.com'
+	item['blog'] = 'http://example.com/blogs/mildred'
+	friends.append(item)
+
+	item['name'] = 'mildred'
+	item['email'] = 'mildred@example.com'
+	item['blog'] = 'http://example.com/blogs/mildred'
+	friends.append(item)
+
+	item['name'] = 'mildred'
+	item['email'] = 'mildred@example.com'
+	item['blog'] = 'http://example.com/blogs/mildred'
+	friends.append(item)
+
+	item['name'] = 'mildred'
+	item['email'] = 'mildred@example.com'
+	item['blog'] = 'http://example.com/blogs/mildred'
+	friends.append(item)
+
+	return friends
+
+
+def linksDefault(path):
+	links = []
+	dict = {'rel': 'home', 'href': path}
+	links.append(dict)
+	return links
+
+def getCurrentPath(url, mod_path):
+	parsed = urlparse(url)
+	href = ''
+	if(mod_path is None):
+		href = ''.join(parsed.scheme, "://", parsed.netloc, parsed.path)
+	else:
+		href = ''.join([parsed.scheme, '://', parsed.netloc, mod_path])
+	return href
+
+def createSkeleton(url):
+	pu = urlparse(url)
+	base = pu.scheme + "://" + pu.netloc
+	path = pu.path
+
+	collection_json = {}
+	collection_json['collection'] = {}
+	collection_json['collection']['version'] = "1.0"
+	collection_json['collection']['href'] = base + path
+	collection_json['collection']['links'] = linksDefault(base + api_root)
+	collection_json['collection']['items'] = []
+	collection_json['collection']['queries'] = []
+	collection_json['collection']['template'] = {}
+
+	return collection_json
+
 
 def runSQLQuery(_sql, code):
     con = MySQLdb.connect(host, user, password, db)
@@ -63,44 +116,14 @@ def runSQLQuery(_sql, code):
     cursor.close()
     con.close()
 
-def dictifyTableItem(data):
-	
-	value = data[0]
-	href = "http://localhost:5000/api/table/structure/" + value
-	data = []
-	data.append({"database": value})
+def generateError(title, code, message):
+	item = {}
+	item["title"]= title
+	item["code"]= code
+	item["message"]= message
 
-	dict = 	{	"href": href,
-				"data": data	
-			}
+	return item
 
-	return dict
-
-def dictifyDescribleTable(data, id):
-	print(data)
-	field_name = data[0]
-	type = data[1]
-	nullable = data[2]
-	key = data[3]
-	default = data[4]
-	extra = data[5]
-
-	data = []
-	data.append(
-		{"field": field_name, 
-		"type": type,
-		"nullable": nullable,
-		"key": key,
-		"default": default,
-		"extra": extra})
-
-	href = "http://localhost:5000/api/table/structure/field_" + str(id)
-
-	dict = 	{ 	"href": href,
-				"data": data
-			}
-
-	return dict
 
 def generateDynamicItem(columns, data):
 	items = []
@@ -114,65 +137,180 @@ def generateDynamicItem(columns, data):
 
 	return jsonify(items)
 
+def packageResponse(data):
+	resp = jsonify(data)
+	resp.status_code = 200
+	resp.message ='OK'
+	resp.content_type = content_type
+	return resp
 
-@app.route('/')
+
+def generateTemplate():
+	pass
+
+@app.route('/api/', methods=['GET'])
 def root():
-	collection = collectionTemplate()
-	query="SHOW DATABASES"
-	data = runSQLQuery(query, 0)
-	print(data)
-
-	return render_template("index.html")
+	url = request.url
+	data = createSkeleton(url)
+	data['collection']['items'] = testItems()
+	return packageResponse(data)
 
 @app.route('/api/table/list', methods=['GET', 'POST'])
 def getTableList():
 
-	#Function for retrieving table list
+	url = request.url
+	data = createSkeleton(url)
+
 	query = "SHOW TABLES"
+	query_results = runSQLQuery(query, 0)
 
-	data = runSQLQuery(query, 0)
+	for i in query_results:
+		item = {}
+		table = i[0]
+		mod_path = '/api/table/structure/' + table
+		item['href'] = getCurrentPath(url, mod_path)
+		item['data'] = {'table': table}
+		data['collection']['items'].append(item)
+
+	return packageResponse(data)
 
 
-	collection = collectionTemplate()
+@app.route('/api/<table>/', methods=['GET', 'POST'])
+def tableRoute(table):
+	url = request.url
+	collection = createSkeleton(url)
 
-	for i in data:
-		collection['collection']['items'].append(dictifyTableItem(i))
+	if(request.method == 'GET'):
+		#Get section code
+		print('GET Structure of ' + table)
+		query = "DESCRIBE {0}".format(table)
+		data = runSQLQuery(query, 0)
+
+		for i in data:
+			item={}
+			item['field'] = i[0]
+			item['type'] = i[1]
+			item['nullable'] = i[2]
+			item['key'] = i[3]
+			item['default'] = i[4]
+			item['extra'] = i[5]
+			collection['collection']['items'].append(item)
+		return packageResponse(collection)
+
+	elif(request.method == 'POST'):
+		try:
+			data = json.dumps(request.get_json())
+			dict_data = json.loads(data)
+			query = ['INSERT ', 'INTO ', table, ' values ', '(null']
+
+			uid = ''
+			for item in dict_data['template']['data']:
+				if(item['name'] == 'id'):
+					uid = item['value']
+				else:
+					query.append(", '{0}'".format(item['value']))
+					uid = uid + item['value']
+
+			query.append(')')
+			query = ''.join(query)
+
+			if(runSQLQuery(query, 1) == True):
+				print("Insert successful")
+				collection['collection']['links'].append({'href': url + 'showall'})
+				collection['collection']['links'].append({'href': url + 'showone/' + uid})
+				return packageResponse(collection)
+
+			else:
+				collection['error'] = generateError("Unable to insert item", "IE x0001", "Check data and try again")
+				return packageResponse(collection)
+
+
+		except Exception as e:
+			collection['error'] = generateError("HTTP Error", "Unknown", str(e))
+			return packageResponse(collection)
+
+
+@app.route('/api/<table>/showone/<unique_href>', methods=['GET'])
+def showone(table, unique_href):
+
+	url = request.url
+	collection = createSkeleton(url)
+	column_query = "SHOW COLUMNS FROM {0}".format(table)
+	columns = runSQLQuery(column_query, 0)
+
+	query = "SELECT * FROM {0} WHERE {1} = {2}".format(table, columns[0][0], 1)
 	
+	rows = runSQLQuery(query, 0)
+	item = {}
+	data = []
+	mod_path = '/api/table/showone/' + unique_href
+	item['href'] = getCurrentPath(url, mod_path)
+	#row_item={}
+	row_item_data={}
+	counter=0
+	for x in columns:
+		#temp['column']= str(x[0])
+		#temp['value']= str(i[counter])
+		row_item_data['{0}'.format(x[0])] = rows[0][counter]
+		counter=counter+1
 
-	print(json.dumps(collection))
-	return jsonify(collection)
+	item['links'] = []
+	item['links'].append({'href': ''})
+	item['links'].append({'href': ''})
+	data.append(row_item_data)
+	item['data'] = data
+	collection['collection']['items'].append(item)
+	
+	return packageResponse(collection)
 
+@app.route('/api/<table>/showall', methods=['GET'])
+def showall(table):
 
-@app.route('/api/table/structure/<table>', methods=['GET'])
-def returnTableStructure(table):
-	input_table = request.get_data()
-	print(input_table)
-	query = "DESCRIBE {0}".format(table)
-	data = runSQLQuery(query, 0)
+	url = request.url
+	collection = createSkeleton(url)
 
-	collection = collectionTemplate()
+	query = "SELECT * FROM {0}".format(table)
+	column_query = "SHOW COLUMNS FROM {0}".format(table)
+	rows = runSQLQuery(query, 0)
+	column_flags = runSQLQuery(column_query, 0)
+	print(rows)
+	print(column_flags)
 
-	x = 0
-	for i in data:
+	data = []
+	for i in column_flags:
+		item = {}
+		item['name'] = i[0]
+		item['value'] = ''
+		data.append(item)
+	
+	collection['collection']['template'] = {'data': data}
+
+	for i in rows:
 		print(i)
-		collection['collection']['items'].append(dictifyDescribleTable(i, x))
-		x = x+1
+		item = {}
+		unique_ref = str(i[0]) + str(i[1])
+		mod_path = '/api/table/showone/' + table + unique_ref
+		item['href'] = getCurrentPath(url, mod_path)
+		#row_item={}
+		data = []
+		row_item_data={}
+		counter=0
+		for x in column_flags:
+			temp={}
+			temp['column']= str(x[0])
+			temp['value']= str(i[counter])
+			#row_item_data['{0}'.format(x[0])] = i[counter]
+			data.append(temp)
+			
+			counter=counter+1
 
-	return jsonify(collection)
+		#data.append(row_item_data)
+		item['data'] = data
+		
+		collection['collection']['items'].append(item)
 
-@app.route('/api/showone/<table_definition>', methods=['GET'])
-def showone(table_definition):
+	return packageResponse(collection)
 
-	query = "SELECT * FROM {0}".format(table_definition)
-	column_query = "SHOW COLUMNS FROM {0}".format(table_definition)
-	data = runSQLQuery(query, 0)
-	data_res = runSQLQuery(column_query, 0)
-	print(data)
-
-	collection = collectionTemplate()
-	collection['collection']['items'].append(generateDynamicItem(data_res, data))
-
-	return jsonify(collection)
 
 if __name__ == '__main__':
     app.run(debug=True)
