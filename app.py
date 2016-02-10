@@ -108,7 +108,8 @@ def runSQLQuery(_sql, code):
         try:
             cursor.execute(_sql)
             con.commit()
-            return True
+            last_id = cursor.lastrowid
+            return last_id 
         except Exception as e:
             print(str(e))
             return False
@@ -167,7 +168,7 @@ def getTableList():
 	for i in query_results:
 		item = {}
 		table = i[0]
-		mod_path = '/api/table/structure/' + table
+		mod_path = '/api/' + table
 		item['href'] = getCurrentPath(url, mod_path)
 		item['data'] = {'table': table}
 		data['collection']['items'].append(item)
@@ -181,8 +182,6 @@ def tableRoute(table):
 	collection = createSkeleton(url)
 
 	if(request.method == 'GET'):
-		#Get section code
-		print('GET Structure of ' + table)
 		query = "DESCRIBE {0}".format(table)
 		data = runSQLQuery(query, 0)
 
@@ -192,7 +191,7 @@ def tableRoute(table):
 			item['type'] = i[1]
 			item['nullable'] = i[2]
 			item['key'] = i[3]
-			item['default'] = i[4]
+			item['default'] = str(i[4])
 			item['extra'] = i[5]
 			collection['collection']['items'].append(item)
 		return packageResponse(collection)
@@ -214,10 +213,12 @@ def tableRoute(table):
 			query.append(')')
 			query = ''.join(query)
 
-			if(runSQLQuery(query, 1) == True):
+			uid = runSQLQuery(query, 1)
+			if(uid != False):
 				print("Insert successful")
+				print(uid)
 				collection['collection']['links'].append({'href': url + 'showall'})
-				collection['collection']['links'].append({'href': url + 'showone/' + uid})
+				collection['collection']['links'].append({'href': url + 'showone/' + str(uid)})
 				return packageResponse(collection)
 
 			else:
