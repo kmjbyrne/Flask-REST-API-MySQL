@@ -1,5 +1,6 @@
 from flask import Flask,render_template,jsonify,url_for,request,session,flash, json, Response
 from urlparse import urlparse
+import lib
 import urllib2, json
 from werkzeug import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer
@@ -62,12 +63,6 @@ def testItems():
 	return friends
 
 
-def linksDefault(path):
-	links = []
-	dict = {'rel': 'home', 'href': path}
-	links.append(dict)
-	return links
-
 def getCurrentPath(url, mod_path):
 	parsed = urlparse(url)
 	href = ''
@@ -94,28 +89,38 @@ def createSkeleton(url):
 	return collection_json
 
 
+def linksDefault(path):
+    links = []
+    dict = {'rel': 'home', 'href': path}
+    links.append(dict)
+    return links
+
 def runSQLQuery(_sql, code):
-    con = MySQLdb.connect(host, user, password, db)
-    cursor = con.cursor()
+	"""Allow for variation in how SQL connection models INSERT's and SELECT's"""
+	"""Divisioin of functionality simply using 0,1 code to decide route"""
+	"""No need for commit on SELECT or UPDATE (code 2 -> later revision)"""
+	con = MySQLdb.connect(host, user, password, db)
+	cursor = con.cursor()
 
-    if code == 0: # All select queries here
-        cursor.execute(_sql)
-        data = cursor.fetchall()
-        return data
+	if code == 0:
+    	# All select queries here
+		cursor.execute(_sql)
+		data = cursor.fetchall()
+		return data
 
+	elif code == 1: 
+    	#All insert queries here
+		try:
+			cursor.execute(_sql)
+			con.commit()
+			last_id = cursor.lastrowid
+			return last_id 
+		except Exception as e:
+			print(str(e))
+			return False
 
-    elif code == 1: #All insert queries here
-        try:
-            cursor.execute(_sql)
-            con.commit()
-            last_id = cursor.lastrowid
-            return last_id 
-        except Exception as e:
-            print(str(e))
-            return False
-
-    cursor.close()
-    con.close()
+	cursor.close()
+	con.close()
 
 def generateError(title, code, message):
 	item = {}
@@ -149,10 +154,14 @@ def packageResponse(data):
 def generateTemplate():
 	pass
 
+@app.route('/', methods=['GET'])
+def home():
+	return render_template('index.html')
+
 @app.route('/api/', methods=['GET'])
 def root():
 	url = request.url
-	data = createSkeleton(url)
+	data = get_skeleton(url)
 	data['collection']['items'] = testItems()
 	return packageResponse(data)
 

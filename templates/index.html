@@ -1,31 +1,24 @@
 <html>
 <head>
-
 	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.0.0-beta1/jquery.js"></script>
-
+	<link href = "https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.0.0-alpha/css/bootstrap.css" type = "text/css">
+	<script src="{{url_for('static', filename='js/script.js')}}"></script>
+	
+	<style>
+		.inner{
+			background-color: #111;
+			box-shadow: 0px 0px 3px #00CCEE;
+		}
+		.inner h1{
+			color: #FFF;
+		}
+	</style>
 </head>
 <body>
 
-<script>
-
-$(document).ready(function(){
-	$.getJSON({
-	  	type: 'GET',
-	 	url: '/api/table/list',
-	  	contentType: 'application/json;',
-	  	dataType: 'json',
-	  	success: function(json) {
-	  		outputJSON(json);
-	  	}
-	});
-});
-
-function outputJSON(json)
-{
-	document.write(JSON.stringify(json));	
-}
-
-</script>
+<h2>Shows a View of all Database Schema</h2>
+<div class="container">
+</div>
 
 </body>
 </html>
