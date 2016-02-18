@@ -6,6 +6,7 @@ from werkzeug import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer
 from functools import wraps
 import MySQLdb
+from lib.collection import Structure
 
 # HTTP Request Detail
 # TYPE : API Feature
@@ -23,14 +24,19 @@ app = Flask(__name__)
 #######################
 
 host = 'localhost'
-password = 'root'
-user = 'root'
+password = 'gamesadminpasswd'
+user = 'gamesadmin'
 db = 'GamesDB'
 
 content_type = 'application/vnd.collection+json'
-api_root = '/api/'
+api_root = '/table'
 
 cj = {}
+
+
+###############################################
+##### 	Standard functions & Test Data ########
+###############################################
 
 def testItems():
 	friends = []
@@ -62,6 +68,20 @@ def testItems():
 
 	return friends
 
+def describeAPI(url):
+	collection = createSkeleton(url)
+	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/list'), 'list tables'))
+	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/<table>'), '[GET] describe table'))
+	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/showall/<table>'), 'show all from table'))
+	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/showone/<table>/<unique_href>'), 'show one from table'))
+	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/<table>'), '[POST] post to table'))
+	return collection
+
+def generateLink(link, rel):
+	link_item = {}
+	link_item['href'] = link
+	link_item['rel'] = rel
+	return link_item
 
 def getCurrentPath(url, mod_path):
 	parsed = urlparse(url)
@@ -88,10 +108,9 @@ def createSkeleton(url):
 
 	return collection_json
 
-
 def linksDefault(path):
     links = []
-    dict = {'rel': 'home', 'href': path}
+    dict = {'rel': 'home', 'href': path + "/list"}
     links.append(dict)
     return links
 
@@ -130,7 +149,6 @@ def generateError(title, code, message):
 
 	return item
 
-
 def generateDynamicItem(columns, data):
 	items = []
 	counter = 0
@@ -151,21 +169,87 @@ def packageResponse(data):
 	return resp
 
 
-def generateTemplate():
-	pass
+def generateTemplate(table_name):
+	#Essentially describing table
+	#Returning column types and 
+	#Column names for INSERT reference
+	template = {}
+	data = []
+	tables = [table_name]
+	description = describeOne(table_name)
+	print(description)
+	for i in description:
+		if(i[0] == 'id'):
+			pass
+		else:
+			item = {}
+			item['prompt'] = "type " + i[1]
+			item['name'] = i[0]
+			item['value'] = ""
+			data.append(item)
+			print(i)
+	template['data'] = data
 
+	return template
+
+def getTables():
+	query = "SHOW TABLES"
+	tables = runSQLQuery(query, 0)
+
+def describeOne(table):
+	query = "DESCRIBE {0}".format(table)
+ 	return runSQLQuery(query, 0)
+	
+def describeTables(url, list_of_tables):
+  	items = []
+	for x in list_of_tables:
+		data = describeOne(x)
+		outer = {}
+		outer['href'] = url
+		outer['data'] = []
+		for i in data:
+			item={}
+			item['name'] = "text"
+			item['value'] = i[0]
+			outer['data'].append(item)
+
+		items.append(outer)
+	return items
+
+###########################################################################################
+###########################################################################################
+###########################################################################################
+##### Python API Section 															#######
+##### GET /table/list [Show's all tables in DB]										#######
+##### GET /table/<table> 					[HTTP Parameter Value]					#######	
+##### GET /table/showall/<table> 			[HTTP Parameter Value]					#######	
+##### POST /table/<table>					[HTTP Parameter Value]					#######	
+##### GET /table/showone/<table>/<uid> 		[HTTP Parameter  Table & Unique HREF]	#######
+##### GET /db/list 																	#######	
+###########################################################################################
+###########################################################################################
+###########################################################################################
+
+"""API ROOT - Describes API links in return object """
 @app.route('/', methods=['GET'])
-def home():
-	return render_template('index.html')
-
-@app.route('/api/', methods=['GET'])
 def root():
 	url = request.url
-	data = get_skeleton(url)
-	data['collection']['items'] = testItems()
-	return packageResponse(data)
+	collection = describeAPI(url)
+	return packageResponse(collection)
 
-@app.route('/api/table/list', methods=['GET', 'POST'])
+
+@app.route('/db/list')
+def showDatabases():
+	url = request.url
+	collection = createSkeleton(url)
+	query = "SHOW DATABASES"
+	data = runSQLQuery(query, 0)
+	for x in data:
+		collection['collection']['items'].append({'name': 'database', 'value': x[0]})
+
+	return packageResponse(collection)
+
+@app.route('/table/list', methods=['GET', 'POST'])
 def getTableList():
 
 	url = request.url
@@ -177,42 +261,47 @@ def getTableList():
 	for i in query_results:
 		item = {}
 		table = i[0]
-		mod_path = '/api/' + table
+		mod_path = '/table/' + table
 		item['href'] = getCurrentPath(url, mod_path)
-		item['data'] = {'table': table}
+		item['data'] = {'name': table}
 		data['collection']['items'].append(item)
 
 	return packageResponse(data)
 
-
-@app.route('/api/<table>/', methods=['GET', 'POST'])
+@app.route('/table/<table>', methods=['GET', 'POST'])
 def tableRoute(table):
 	url = request.url
 	collection = createSkeleton(url)
 
 	if(request.method == 'GET'):
-		query = "DESCRIBE {0}".format(table)
-		data = runSQLQuery(query, 0)
 
-		for i in data:
-			item={}
-			item['field'] = i[0]
-			item['type'] = i[1]
-			item['nullable'] = i[2]
-			item['key'] = i[3]
-			item['default'] = str(i[4])
-			item['extra'] = i[5]
-			collection['collection']['items'].append(item)
+		query = "SHOW TABLES";
+		dbs = [table]
+			
+		collection['collection']['items'] = describeTables(url, dbs)
+		link = getCurrentPath(url, '/table/' + table)
+
+		collection['collection']['links'].append(generateLink(link, 'post'))
 		return packageResponse(collection)
 
 	elif(request.method == 'POST'):
 		try:
-			data = json.dumps(request.get_json())
-			dict_data = json.loads(data)
+			try:
+				data = json.dumps(request.get_json())
+				dict_data = json.loads(data)
+				if(dict_data == None):
+					raise Exception('Exception raised - JSON data package is None')
+
+			except Exception as e:
+				collection['collection']['error'] = generateError("NO DATA", "IE x0001", str(e))
+				collection['collection']['template'] = generateTemplate(table)
+				return packageResponse(collection)
+
 			query = ['INSERT ', 'INTO ', table, ' values ', '(null']
 
 			uid = ''
 			for item in dict_data['template']['data']:
+				print(item)
 				if(item['name'] == 'id'):
 					uid = item['value']
 				else:
@@ -222,58 +311,75 @@ def tableRoute(table):
 			query.append(')')
 			query = ''.join(query)
 
-			uid = runSQLQuery(query, 1)
-			if(uid != False):
+			print()
+
+			status = runSQLQuery(query, 1)
+
+			if(status != False):
 				print("Insert successful")
-				print(uid)
-				collection['collection']['links'].append({'href': url + 'showall'})
-				collection['collection']['links'].append({'href': url + 'showone/' + str(uid)})
+				print(status)
+				link = getCurrentPath(url, "/table/showall/" + table)
+				collection['collection']['links'].append(generateLink(link, 'showall'))
+				link = getCurrentPath(url, "/table/showone/" + str(status))
+				collection['collection']['links'].append(generateLink(link, 'showone'))
 				return packageResponse(collection)
 
 			else:
-				collection['error'] = generateError("Unable to insert item", "IE x0001", "Check data and try again")
+				collection['collection']['error'] = generateError("Unable to insert item", "IE x0002", "Check data and try again")
 				return packageResponse(collection)
 
 
 		except Exception as e:
-			collection['error'] = generateError("HTTP Error", "Unknown", str(e))
+			collection['collection']['error'] = generateError("HTTP Error", "Unknown", str(e))
+			collection['collection']['template'] = generateTemplate(table)
 			return packageResponse(collection)
 
-
-@app.route('/api/<table>/showone/<unique_href>', methods=['GET'])
-def showone(table, unique_href):
-
+@app.route('/table/showone/<table>/<id>', methods=['GET'])
+def showone(table, id):
 	url = request.url
 	collection = createSkeleton(url)
 	column_query = "SHOW COLUMNS FROM {0}".format(table)
 	columns = runSQLQuery(column_query, 0)
 
-	query = "SELECT * FROM {0} WHERE {1} = {2}".format(table, columns[0][0], 1)
+	query = "SELECT * FROM {0} WHERE {1} = {2}".format(table, columns[0][0], id)
 	
 	rows = runSQLQuery(query, 0)
 	item = {}
 	data = []
-	mod_path = '/api/table/showone/' + unique_href
+	mod_path = '/table/showone/' + id
 	item['href'] = getCurrentPath(url, mod_path)
 	#row_item={}
-	row_item_data={}
+	row_item_data = []
 	counter=0
-	for x in columns:
-		#temp['column']= str(x[0])
-		#temp['value']= str(i[counter])
-		row_item_data['{0}'.format(x[0])] = rows[0][counter]
-		counter=counter+1
 
-	item['links'] = []
-	item['links'].append({'href': ''})
-	item['links'].append({'href': ''})
-	data.append(row_item_data)
-	item['data'] = data
-	collection['collection']['items'].append(item)
+	if len(rows) == 0:
+		collection['collection']['error'] = (generateError("Does not exist", "IE x0003", "Item HREF does not correspond to any data"))
+	else:
+		for x in columns:
+			data_item = {}
+			data_item['name'] = x[0]
+			data_item['value'] = rows[0][counter]
+			row_item_data.append(data_item)
+			#temp['column']= str(x[0])
+			#temp['value']= str(i[counter])
+			counter=counter+1
+		item['links'] = []
+
+		link = getCurrentPath(url, mod_path)
+		item['links'].append(generateLink(link, 'showone'))
+		link = getCurrentPath(url, '/table/showall')
+		item['links'].append(generateLink(link, 'showall'))
+		link = getCurrentPath(url, '/table/' + table)
+		item['links'].append(generateLink(link, 'post'))
+
+		item['data'] = row_item_data
+		collection['collection']['items'].append(item)
+
+	collection['collection']['template'] = generateTemplate(table)
 	
 	return packageResponse(collection)
 
-@app.route('/api/<table>/showall', methods=['GET'])
+@app.route('/table/showall/<table>', methods=['GET'])
 def showall(table):
 
 	url = request.url
@@ -293,13 +399,13 @@ def showall(table):
 		item['value'] = ''
 		data.append(item)
 	
-	collection['collection']['template'] = {'data': data}
+	collection['collection']['template'] = generateTemplate(table)
 
 	for i in rows:
 		print(i)
 		item = {}
-		unique_ref = str(i[0]) + str(i[1])
-		mod_path = '/api/table/showone/' + table + unique_ref
+		unique_ref = str(i[0])
+		mod_path = '/table/showone/' + table + "/" + unique_ref
 		item['href'] = getCurrentPath(url, mod_path)
 		#row_item={}
 		data = []
@@ -307,7 +413,7 @@ def showall(table):
 		counter=0
 		for x in column_flags:
 			temp={}
-			temp['column']= str(x[0])
+			temp['name']= str(x[0])
 			temp['value']= str(i[counter])
 			#row_item_data['{0}'.format(x[0])] = i[counter]
 			data.append(temp)
@@ -321,6 +427,24 @@ def showall(table):
 
 	return packageResponse(collection)
 
+@app.errorhandler(404)
+@app.errorhandler(500)
+@app.route('/error')
+def error(e):
+	url = request.url
+	collection = createSkeleton(url)
+	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/list'), 'list tables'))
+	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/<table>'), '[GET] describe table'))
+	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/showall/<table>'), 'show all from table'))
+	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/showone/<table>/<unique_href>'), 'show one from table'))
+	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/<table>'), '[POST] post to table'))
+	collection['collection']['error'] = generateError("API:None", "IE x0005", "API link does not exist")
+	if (e == 404):
+		return packageResponse(collection)
+	else:
+		return packageResponse(collection)
+
+
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5000)
