@@ -1,5 +1,5 @@
 
-from urlparse import urlparse
+from urllib.parse import urlparse
 
 api_root = '/table/list/'
 
@@ -27,6 +27,9 @@ class Structure(object):
 
     def appendLink(self, link):
         self.collection['collection']['links'].append(link)
+
+    def appendLinks(self, links):
+        self.collection['collection']['links'] = links
 
     def setItems(self, items):
         self.collection['collection']['items'] = items
@@ -56,7 +59,7 @@ def generateTemplate(table_name):
             item['name'] = i[0]
             item['value'] = ""
             data.append(item)
-            print(i)
+
     template['data'] = data
 
     return template

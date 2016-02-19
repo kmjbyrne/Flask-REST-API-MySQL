@@ -1,12 +1,12 @@
 from flask import Flask,render_template,jsonify,url_for,request,session,flash, json, Response
-from urlparse import urlparse
-import lib
-import urllib2, json
+from urllib.parse import urlparse
+import lib, json
 from werkzeug import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer
 from functools import wraps
-import MySQLdb
+import mysql.connector
 from lib.collection import Structure
+from lib.errors import *
 
 # HTTP Request Detail
 # TYPE : API Feature
@@ -68,13 +68,14 @@ def testItems():
 	return friends
 
 def describeAPI(url):
-	collection = createSkeleton(url)
-	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/list'), 'list tables'))
-	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/<table>'), '[GET] describe table'))
-	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/showall/<table>'), 'show all from table'))
-	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/showone/<table>/<unique_href>'), 'show one from table'))
-	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/<table>'), '[POST] post to table'))
-	return collection
+	links = []
+	links.append(generateLink(getCurrentPath(url, '/table/list'), 'list tables'))
+	links.append(generateLink(getCurrentPath(url, '/table/<table>'), '[GET] post to table'))
+	links.append(generateLink(getCurrentPath(url, '/table/showall/<table>'), 'show all from table'))
+	links.append(generateLink(getCurrentPath(url, '/table/showone/<table>/<unique_href>'), 'show one from table'))
+	links.append(generateLink(getCurrentPath(url, '/table/<table>'), '[POST] post to table'))
+
+	return links
 
 def generateLink(link, rel):
 	link_item = {}
@@ -99,16 +100,21 @@ def linksDefault(path):
 
 def runSQLQuery(_sql, code):
 	"""Allow for variation in how SQL connection models INSERT's and SELECT's"""
-	"""Divisioin of functionality simply using 0,1 code to decide route"""
+	"""Division of functionality simply using 0,1,2 code to decide route"""
 	"""No need for commit on SELECT or UPDATE (code 2 -> later revision)"""
-	con = MySQLdb.connect(host, user, password, db)
+	"""For returning data relating to the structure of a table to order specific"""
+	"""Insert queries on POST"""
+	con = mysql.connector.connect(host=host, user=user, password=password, database=db)
 	cursor = con.cursor()
 
 	if code == 0:
     	# All select queries here
-		cursor.execute(_sql)
-		data = cursor.fetchall()
-		return data
+		try:
+			cursor.execute(_sql)
+			data = cursor.fetchall()
+			return data
+		except Exception as e:
+			return e
 
 	elif code == 1: 
     	#All insert queries here
@@ -116,18 +122,18 @@ def runSQLQuery(_sql, code):
 			cursor.execute(_sql)
 			con.commit()
 			last_id = cursor.lastrowid
-			return last_id 
+			return {'code': True, 'msg': last_id} 
 		except Exception as e:
-			print(str(e))
-			return False
+			return {'code': False, 'msg': e}
 	elif code == 2:
 		#All special describe queries here
 		try:
+			data = {}
 			cursor.execute(_sql)
-			con.commit()
-			return cursor
+			data['rows'] = cursor.fetchall()
+			data['columns'] = cursor.description
+			return data
 		except Exception as e:
-			print(str(e))
 			return False
 
 
@@ -169,9 +175,9 @@ def generateTemplate(table_name):
 	data = []
 	tables = [table_name]
 	description = describeOne(table_name)
-	print(description)
+
 	for i in description:
-		if(i[0] == 'id'):
+		if(i[0] == 'id' or 'on update' in i[5] or 'auto_increment' in i[5]):
 			pass
 		else:
 			item = {}
@@ -179,7 +185,7 @@ def generateTemplate(table_name):
 			item['name'] = i[0]
 			item['value'] = ""
 			data.append(item)
-			print(i)
+
 	template['data'] = data
 
 	return template
@@ -191,46 +197,56 @@ def getTables():
 
 def describeOne(table):
 	query = "DESCRIBE {0}".format(table)
- 	return runSQLQuery(query, 0)
+	return runSQLQuery(query, 0)
 	
 def describeTables(url, list_of_tables):
-
+	"""Returns a global set of info relating"""
+	"""to tables given [parameter list]"""
 	items = []
-  	data = []
-  	print(list_of_tables)
+	data = []
+
 	for x in list_of_tables:
 		query = "DESCRIBE {0}".format(x)
- 		cursor = runSQLQuery(query, 2)
-		headers = cursor.description
+		query_results = runSQLQuery(query, 2)
+		headers = query_results['columns']
 
-		print(headers)
 		item = {}
 		item['href'] = url
 		item['data'] = []
-
-		table_data = cursor.fetchall()
 		
-		for i in table_data:	
+		for i in query_results['rows']:	
 			counter = 0
+			
+			sub_item = {}
+			sub_item['href'] = getCurrentPath(url, "/table/post/players/" + i[0])
+			sub_item['data'] = []
+			print(i)
 			inner_data = []
 			for col in i:
-				print(col)
 				data_item = {}
+				print(headers)
 				data_item['name'] = headers[counter][0]
 				data_item['value'] = col
+				sub_item['data'].append(data_item)
 				counter = counter + 1
-				inner_data.append(data_item)
 
-		item['data'] = inner_data
-		items.append(item)
+			items.append(sub_item)
+		#items.append(item)
+
+	print(items)
 	return items
-
 
 def generateNameValuePair(name, value):
 	item = {}
 	item['name'] = name
 	item['value'] = value
 	return item
+
+def appendByType(item):
+	if('varchar' in item['prompt']):
+		return "'{0}'".format(item['value'])
+	else:
+		return "{0}".format(item['value'])
 
 ###########################################################################################
 ###########################################################################################
@@ -251,10 +267,9 @@ def generateNameValuePair(name, value):
 def root():
 	url = request.url
 	data = Structure(url)
-	print(data)
 	return packageResponse(data)
 
-"""Original spec - deprecated as of v2.0 on request"""
+"""Worked from spec v1.0"""
 @app.route('/db/list')
 def showDatabases():
 	url = request.url
@@ -266,7 +281,16 @@ def showDatabases():
 
 	return packageResponse(collection)
 
-@app.route('/table/list', methods=['GET', 'POST'])
+"""Worked from spec v1.0"""
+@app.route('/db/create/<db_name>')
+def createDatabase(db_name):
+	url = request.url
+	query = "CREATE {0}".format(db_name)
+	status = runSQLQuery(query, 1)
+	collection = Structure(url)
+
+
+@app.route('/table/list', methods=['GET'])
 def getTableList():
 
 	url = request.url
@@ -275,7 +299,7 @@ def getTableList():
 
 	for i in query_results:
 		item = {}
-		mod_path = '/table/' + i[0]
+		mod_path = '/table/post/' + i[0]
 		item['href'] = getCurrentPath(url, mod_path)
 		item['data'] = []
 		item['data'].append(generateNameValuePair('table', i[0]))
@@ -283,18 +307,21 @@ def getTableList():
 
 	return packageResponse(collection)
 
-@app.route('/table/<table>', methods=['GET', 'POST'])
+
+@app.route('/table/post/<table>', methods=['GET', 'POST'])
 def tableRoute(table):
+	"""table/structure & table/post merged into one method"""
 	url = request.url
 	collection = Structure(url)
 
 	if(request.method == 'GET'):
 		dbs = [table]	
-		print(describeTables(url, dbs))
 		collection.setItems(describeTables(url, dbs))
-		link = getCurrentPath(url, '/table/' + table)
+		link = getCurrentPath(url, '/table/post/' + table)
 
 		collection.appendLink(generateLink(link, 'post'))
+		collection.setPostTemplate(generateTemplate(table))
+
 		return packageResponse(collection)
 
 	elif(request.method == 'POST'):
@@ -307,42 +334,55 @@ def tableRoute(table):
 					raise Exception('Exception raised - JSON data package is None')
 
 			except Exception as e:
-				collection.setError(generateError("NO DATA", "IE x0001", str(e)))
+				collection.setError(getError(1, e))
 				collection.setPostTemplate(generateTemplate(table))
 				return packageResponse(collection)
 
-			query = ['INSERT ', 'INTO ', table, ' values ', '(']
-
-			uid = ''
-
-			for item in dict_data['template']['data']:
-				print('YES')
-				if(item['name'] == 'id'):
-					uid = item['value']
+			columns = ""
+			counter = 0
+			for col in dict_data['template']['data']:
+				if(counter == 0):
+					columns += (col['name'])
 				else:
-					query.append(", '{0}'".format(item['value']))
-					uid = uid + item['value']
+					columns += (", " + col['name'] + "")
+				counter = counter + 1
+
+			query = ['INSERT ', 'INTO ', table, '(', columns, ')', ' values ', '(']
+
+			inputs = 0
+			for item in dict_data['template']['data']:
+				if(item['name'] != 'id'):
+					if(inputs == 0):
+						query.append(appendByType(item))
+
+					else:
+						query.append(", " + appendByType(item))
+
+					inputs = inputs + 1
 
 			query.append(')')
 			query = ''.join(query)
-			status = runSQLQuery(query, 1)
+			status = ""
+			try:
+				status = runSQLQuery(query, 1)
+			except Exception as e:
+				collection.setError(getError(2, status['msg']))
+				return packageResponse(collection)
 
-			if(status != False):
-				print("Insert successful")
-				print(status)
+			if(status['code'] != False):
 				link = getCurrentPath(url, "/table/showall/" + table)
 				collection.appendLink(generateLink(link, 'showall'))
-				link = getCurrentPath(url, "/table/showone/" + str(status))
+				link = getCurrentPath(url, "/table/showone/" + table + "/" + str(status['msg']))
 				collection.appendLink(generateLink(link, 'showone'))
 				return packageResponse(collection)
 
 			else:
-				collectionsetError(generateError("Unable to insert item", "IE x0002", "Check data and try again"))
+				collection.setError(getError(2, str(status['msg'])))
 				return packageResponse(collection)
 
-
 		except Exception as e:
-			collection.setError(generateError("HTTP Error", "Unknown", str(e)))
+			print(e)
+			collection.setError(getError(-1, e))
 			collection.setPostTemplate(generateTemplate(table))
 			return packageResponse(collection)
 
@@ -365,22 +405,18 @@ def showone(table, id):
 	counter=0
 
 	if len(rows) == 0:
-		collection.setError(generateError("Does not exist", "IE x0003", "Item HREF does not correspond to any data"))
+		collection.setError(getError(3, ""))
 	else:
 		for x in columns:
-			data_item = {}
-			data_item['name'] = x[0]
-			data_item['value'] = rows[0][counter]
+			data_item = generateNameValuePair(x[0], rows[0][counter])
 			row_item_data.append(data_item)
-			#temp['column']= str(x[0])
-			#temp['value']= str(i[counter])
 			counter=counter+1
 
 		link = getCurrentPath(url, mod_path)
 		collection.appendLink(generateLink(link, 'showone'))
 		link = getCurrentPath(url, '/table/showall')
 		collection.appendLink(generateLink(link, 'showall'))
-		link = getCurrentPath(url, '/table/' + table)
+		link = getCurrentPath(url, '/table/post/' + table)
 		collection.appendLink(generateLink(link, 'post'))
 
 		item['data'] = row_item_data
@@ -390,72 +426,68 @@ def showone(table, id):
 	
 	return packageResponse(collection)
 
-@app.route('/table/showall/<table>', methods=['GET'])
-def showall(table):
-
+@app.route('/table/showall/<table>/<column>', methods=['GET'])
+def showallByColumn(table, column):
 	url = request.url
 	collection = Structure(url)
+	collection.setPostTemplate(generateTemplate(table))
+
+	query = "SELECT {0} FROM {1}".format(column, table)
+	query_result = runSQLQuery(query, 0)
+
+	print(query_result)
+
+	for item in query_result:
+		collection.appendItem({'name': column, 'value': item[0]})
+
+	return packageResponse(collection)
+
+@app.route('/table/showall/<table>', methods=['GET'])
+def showall(table):
+	url = request.url
+	collection = Structure(url)
+	collection.setPostTemplate(generateTemplate(table))
 
 	query = "SELECT * FROM {0}".format(table)
 	column_query = "SHOW COLUMNS FROM {0}".format(table)
 	rows = runSQLQuery(query, 0)
 	column_flags = runSQLQuery(column_query, 0)
-	print(rows)
-	print(column_flags)
-
-	data = []
-	for i in column_flags:
-		item = {}
-		item['name'] = i[0]
-		item['value'] = ''
-		data.append(item)
-	
-	collection.setPostTemplate(generateTemplate(table))
 
 	for i in rows:
-		print(i)
 		item = {}
 		unique_ref = str(i[0])
 		mod_path = '/table/showone/' + table + "/" + unique_ref
 		item['href'] = getCurrentPath(url, mod_path)
-		#row_item={}
 		data = []
-		row_item_data={}
+
 		counter=0
 		for x in column_flags:
-			temp={}
-			temp['name']= str(x[0])
-			temp['value']= str(i[counter])
-			#row_item_data['{0}'.format(x[0])] = i[counter]
-			data.append(temp)
-			
+			data.append(generateNameValuePair(x[0], i[counter]))
 			counter=counter+1
 
-		#data.append(row_item_data)
 		item['data'] = data
-		
 		collection.appendItem(item)
 
 	return packageResponse(collection)
 
 @app.errorhandler(404)
+@app.errorhandler(405)
 @app.errorhandler(500)
 @app.route('/error')
 def error(e):
 	url = request.url
-	collection = createSkeleton(url)
-	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/list'), 'list tables'))
-	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/<table>'), '[GET] describe table'))
-	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/showall/<table>'), 'show all from table'))
-	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/showone/<table>/<unique_href>'), 'show one from table'))
-	collection['collection']['links'].append(generateLink(getCurrentPath(url, '/table/<table>'), '[POST] post to table'))
-	collection['collection']['error'] = generateError("API:None", "IE x0005", "API link does not exist")
-	if (e == 404):
-		return packageResponse(collection)
+	collection = Structure(url)
+	collection.appendLinks(describeAPI(url))
+
+	if (e.code == 404):
+		collection.setError(getHTTPError(404, request))
+	elif(e.code == 405):
+		collection.setError(getHTTPError(405, request))
 	else:
+		collection.setError(getHTTPError(5, e))
 		return packageResponse(collection)
 
-
+	return packageResponse(collection)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True)
