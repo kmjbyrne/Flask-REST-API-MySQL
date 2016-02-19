@@ -220,11 +220,9 @@ def describeTables(url, list_of_tables):
 			sub_item = {}
 			sub_item['href'] = getCurrentPath(url, "/table/post/players/" + i[0])
 			sub_item['data'] = []
-			print(i)
 			inner_data = []
 			for col in i:
 				data_item = {}
-				print(headers)
 				data_item['name'] = headers[counter][0]
 				data_item['value'] = col
 				sub_item['data'].append(data_item)
@@ -232,8 +230,6 @@ def describeTables(url, list_of_tables):
 
 			items.append(sub_item)
 		#items.append(item)
-
-	print(items)
 	return items
 
 def generateNameValuePair(name, value):
@@ -381,7 +377,6 @@ def tableRoute(table):
 				return packageResponse(collection)
 
 		except Exception as e:
-			print(e)
 			collection.setError(getError(-1, e))
 			collection.setPostTemplate(generateTemplate(table))
 			return packageResponse(collection)
@@ -434,8 +429,6 @@ def showallByColumn(table, column):
 
 	query = "SELECT {0} FROM {1}".format(column, table)
 	query_result = runSQLQuery(query, 0)
-
-	print(query_result)
 
 	for item in query_result:
 		collection.appendItem({'name': column, 'value': item[0]})
