@@ -1,3 +1,22 @@
+# - Author: Keith Michael Byrne
+# - Date Completed: 19/02/2015
+# - Aegis of: Institute of Technology Carlow
+
+# - Synopsis: 	RESTful API for database schema gamesdb
+# -				and can be easily configured for use on any
+# -				database schema by reassigning db on global
+# -				definitions under CONFIG SETTINGS
+
+# - Date of Submission: 19/02/2015 00:00
+# - Python Data: Version 3.4
+# - Dependencies: Flask, mysql-connector-python
+# - 	See also lib modules for errors and collection+JSON object
+
+# - Supervisor: Paul Barry
+# - Successful implementation on: Windows 7/8, Raspberry Pi (Debian) & Linux Mint
+
+
+
 from flask import Flask,render_template,jsonify,url_for,request,session,flash, json, Response
 from urllib.parse import urlparse
 import lib, json
@@ -28,13 +47,20 @@ password = 'gamesadminpasswd'
 user = 'gamesadmin'
 db = 'GamesDB'
 
+#######################
+### HTTP metadata	###
+#######################
+
 content_type = 'application/vnd.collection+json'
+
+#######################
+###	API root [home] ###
+#######################
+
 api_root = '/table'
 
-cj = {}
-
 ###############################################
-##### 	Standard functions & Test Data ########
+####	Test data functions from ex 	#######
 ###############################################
 
 def testItems():
@@ -66,6 +92,10 @@ def testItems():
 	friends.append(item)
 
 	return friends
+
+###############################################
+##### 	Standard functions & Test Data ########
+###############################################
 
 def describeAPI(url):
 	links = []
@@ -216,16 +246,12 @@ def describeTables(url, list_of_tables):
 		
 		for i in query_results['rows']:	
 			counter = 0
-			
 			sub_item = {}
 			sub_item['href'] = getCurrentPath(url, "/table/post/players/" + i[0])
 			sub_item['data'] = []
 			inner_data = []
 			for col in i:
-				data_item = {}
-				data_item['name'] = headers[counter][0]
-				data_item['value'] = col
-				sub_item['data'].append(data_item)
+				sub_item['data'].append(generateNameValuePair(headers[counter][0], col))
 				counter = counter + 1
 
 			items.append(sub_item)
@@ -285,7 +311,6 @@ def createDatabase(db_name):
 	status = runSQLQuery(query, 1)
 	collection = Structure(url)
 
-
 @app.route('/table/list', methods=['GET'])
 def getTableList():
 
@@ -302,7 +327,6 @@ def getTableList():
 		collection.appendItem(item)
 
 	return packageResponse(collection)
-
 
 @app.route('/table/post/<table>', methods=['GET', 'POST'])
 def tableRoute(table):
@@ -409,7 +433,7 @@ def showone(table, id):
 
 		link = getCurrentPath(url, mod_path)
 		collection.appendLink(generateLink(link, 'showone'))
-		link = getCurrentPath(url, '/table/showall')
+		link = getCurrentPath(url, '/table/showall/' + table)
 		collection.appendLink(generateLink(link, 'showall'))
 		link = getCurrentPath(url, '/table/post/' + table)
 		collection.appendLink(generateLink(link, 'post'))
@@ -480,6 +504,7 @@ def error(e):
 		collection.setError(getHTTPError(5, e))
 		return packageResponse(collection)
 
+	collection.setError(getError(6, e))
 	return packageResponse(collection)
 
 if __name__ == '__main__':
